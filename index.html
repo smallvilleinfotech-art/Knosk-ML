@@ -283,6 +283,7 @@
     <div><span class="dot" id="conn-dot"></span><span id="clock-status">Connected to sheet</span></div>
     <div id="clock-date"></div>
   </div>
+  <button class="icon-btn" id="user-btn" title="Set your name" onclick="openUserModal()" style="width:auto;min-width:36px;height:36px;padding:0 10px;font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;gap:6px;">👤 <span id="user-btn-label">Set name</span></button>
   <button class="icon-btn" id="connect-btn" title="Connect to your Web App URL" onclick="openConnectModal()" style="width:36px;height:36px;">⚙</button>
 </header>
 
@@ -329,7 +330,7 @@
         <table id="log-table">
           <thead><tr>
             <th>S/N</th><th>Date</th><th>Asset</th><th>Location</th><th>Issue</th>
-            <th>Type</th><th>Cost</th><th>Status</th><th>Next due</th><th></th>
+            <th>Type</th><th>Cost</th><th>Status</th><th>Next due</th><th>Logged by</th><th>Closed by</th><th></th>
           </tr></thead>
           <tbody id="log-tbody"></tbody>
         </table>
@@ -416,6 +417,7 @@
       </div>
       <div class="field"><label>Next due date</label><input type="date" id="f-nextdue"></div>
       <div class="field"><label>Remarks</label><textarea id="f-remarks"></textarea></div>
+      <div id="f-tracking" style="display:none;margin-top:4px;padding:12px 14px;background:var(--paper);border-radius:8px;font-size:12.5px;color:var(--ink-soft);line-height:1.7;"></div>
     </div>
     <div class="modal-foot">
       <button class="btn ghost" onclick="closeModal('log-overlay')">Cancel</button>
@@ -452,6 +454,28 @@
     <div class="modal-foot">
       <button class="btn ghost" onclick="closeModal('veh-overlay')">Cancel</button>
       <button class="btn primary" onclick="saveVehicleEntry()">Save entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- USER MODAL -->
+<div class="overlay" id="user-overlay">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-head">
+      <h3>Who's logging entries?</h3>
+      <button class="close-x" onclick="closeModal('user-overlay')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-top:0;color:var(--ink-soft);font-size:13.5px;line-height:1.6;">
+        Your name is attached to every entry you log, and recorded whenever you close/sort one out — so the team can see who did what.
+      </p>
+      <div class="field">
+        <label>Your name</label>
+        <input type="text" id="u-name" placeholder="e.g. Stephen Olabamiji">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" onclick="saveUserName()">Save</button>
     </div>
   </div>
 </div>
@@ -503,6 +527,33 @@ function safeSet_(key,val){ try { localStorage.setItem(key,val); return true; } 
 function safeRemove_(key){ try { localStorage.removeItem(key); } catch(e){} }
 
 /* ==================================================================
+   USER IDENTITY — a lightweight "who's logging this" tag, kept in this
+   browser only, attached to new entries and to status changes so the
+   team can see who logged or closed/sorted each issue.
+   ================================================================== */
+function getCurrentUser(){ return (safeGet_('knosk_username') || '').trim(); }
+function refreshUserChip(){
+  const name = getCurrentUser();
+  document.getElementById('user-btn-label').textContent = name || 'Set name';
+}
+function openUserModal(){
+  document.getElementById('u-name').value = getCurrentUser();
+  document.getElementById('user-overlay').classList.add('active');
+}
+function saveUserName(){
+  const val = document.getElementById('u-name').value.trim();
+  if(!val){ showToast('Please enter a name.', true); return; }
+  safeSet_('knosk_username', val);
+  refreshUserChip();
+  closeModal('user-overlay');
+  showToast('Now logging as ' + val + '.');
+}
+function ensureUserIdentity(){
+  refreshUserChip();
+  if(!getCurrentUser()) openUserModal();
+}
+
+/* ==================================================================
    STATE
    ================================================================== */
 let DATA = { log: [], vehicles: [], summary: [], stats: {} };
@@ -519,10 +570,15 @@ const RUNNING_STANDALONE = !EMBEDDED_IN_APPS_SCRIPT && !REMOTE_URL;
    takes over automatically and every write hits the real Sheet.
    ================================================================== */
 const Mock = (() => {
+  function fmtNow_(){
+    const d = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
   let log = [
-    {_row:2,'S/N':1,'Date':'2026-06-03','Asset Type':'Generator','Asset Name/ID':'Generator 2','Location':'Admin block','Issue Reported':'Will not start','Type (Preventive/Corrective)':'Corrective','Action Taken':'Replaced starter battery','Parts Replaced':'12V battery','Service Provider/Technician':'Musa Electricals','Cost (₦)':45000,'Downtime':'1 day','Next Due Date':'2026-12-03','Status (Open/Closed)':'Closed','Remarks':''},
-    {_row:3,'S/N':2,'Date':'2026-06-20','Asset Type':'Borehole pump','Asset Name/ID':'Pump A','Location':'Rear compound','Issue Reported':'Low water pressure','Type (Preventive/Corrective)':'Corrective','Action Taken':'Cleaned filter, checked pipe','Parts Replaced':'','Service Provider/Technician':'Ade Plumbing','Cost (₦)':8000,'Downtime':'3 hours','Next Due Date':'2026-08-20','Status (Open/Closed)':'Open','Remarks':'Monitor pressure weekly'},
-    {_row:4,'S/N':3,'Date':'2026-07-01','Asset Type':'Roofing','Asset Name/ID':'Block C roof','Location':'Block C classrooms','Issue Reported':'Leak during rain','Type (Preventive/Corrective)':'Corrective','Action Taken':'Patched sheet, resealed joints','Parts Replaced':'Roofing sealant','Service Provider/Technician':'Femi Roofing','Cost (₦)':22000,'Downtime':'1 day','Next Due Date':'2027-01-01','Status (Open/Closed)':'Open','Remarks':''}
+    {_row:2,'S/N':1,'Date':'2026-06-03','Asset Type':'Generator','Asset Name/ID':'Generator 2','Location':'Admin block','Issue Reported':'Will not start','Type (Preventive/Corrective)':'Corrective','Action Taken':'Replaced starter battery','Parts Replaced':'12V battery','Service Provider/Technician':'Musa Electricals','Cost (₦)':45000,'Downtime':'1 day','Next Due Date':'2026-12-03','Status (Open/Closed)':'Closed','Remarks':'','Logged By':'Stephen Olabamiji','Logged At':'2026-06-03 09:15','Closed By':'Stephen Olabamiji','Closed At':'2026-06-04 11:02'},
+    {_row:3,'S/N':2,'Date':'2026-06-20','Asset Type':'Borehole pump','Asset Name/ID':'Pump A','Location':'Rear compound','Issue Reported':'Low water pressure','Type (Preventive/Corrective)':'Corrective','Action Taken':'Cleaned filter, checked pipe','Parts Replaced':'','Service Provider/Technician':'Ade Plumbing','Cost (₦)':8000,'Downtime':'3 hours','Next Due Date':'2026-08-20','Status (Open/Closed)':'Open','Remarks':'Monitor pressure weekly','Logged By':'Chidi Okafor','Logged At':'2026-06-20 14:40','Closed By':'','Closed At':''},
+    {_row:4,'S/N':3,'Date':'2026-07-01','Asset Type':'Roofing','Asset Name/ID':'Block C roof','Location':'Block C classrooms','Issue Reported':'Leak during rain','Type (Preventive/Corrective)':'Corrective','Action Taken':'Patched sheet, resealed joints','Parts Replaced':'Roofing sealant','Service Provider/Technician':'Femi Roofing','Cost (₦)':22000,'Downtime':'1 day','Next Due Date':'2027-01-01','Status (Open/Closed)':'Open','Remarks':'','Logged By':'Chidi Okafor','Logged At':'2026-07-01 08:05','Closed By':'','Closed At':''}
   ];
   let veh = [
     {_row:2,'S/N':1,'Date':'2026-06-10','Vehicle Name/Plate No.':'School Bus – KJA 221 XA','Mileage':'38,400km','Service Type':'Oil change','Issue':'Scheduled service','Action Taken':'Oil and filter changed','Mechanic':'Tunde Auto','Cost (₦)':15000,'Next Service Date/Mileage':'43,000km','Remarks':''},
@@ -570,8 +626,33 @@ const Mock = (() => {
   }
   return {
     getAll(){ return {log:[...log], vehicles:[...veh], summary:summary(), stats:stats()}; },
-    addLog(d){ d['S/N']=++seq; d._row = log.length+2; log.push(d); return this.getAll(); },
-    updateLog(row,d){ const i=log.findIndex(r=>r._row===row); if(i>-1){d['S/N']=log[i]['S/N']; d._row=row; log[i]=d;} return this.getAll(); },
+    addLog(d){
+      d['S/N']=++seq; d._row = log.length+2;
+      const now = fmtNow_();
+      d['Logged By'] = d['_actor'] || 'Unknown';
+      d['Logged At'] = now;
+      if((d['Status (Open/Closed)']||'').toLowerCase()==='closed'){ d['Closed By']=d['_actor']||'Unknown'; d['Closed At']=now; }
+      else { d['Closed By']=''; d['Closed At']=''; }
+      delete d['_actor'];
+      log.push(d); return this.getAll();
+    },
+    updateLog(row,d){
+      const i=log.findIndex(r=>r._row===row);
+      if(i>-1){
+        const existing = log[i];
+        d['S/N']=existing['S/N']; d._row=row;
+        d['Logged By'] = existing['Logged By'] || d['_actor'] || 'Unknown';
+        d['Logged At'] = existing['Logged At'] || fmtNow_();
+        const oldStatus = (existing['Status (Open/Closed)']||'').toLowerCase();
+        const newStatus = (d['Status (Open/Closed)']||'').toLowerCase();
+        if(newStatus==='closed' && oldStatus!=='closed'){ d['Closed By']=d['_actor']||'Unknown'; d['Closed At']=fmtNow_(); }
+        else if(newStatus!=='closed'){ d['Closed By']=''; d['Closed At']=''; }
+        else { d['Closed By']=existing['Closed By']||''; d['Closed At']=existing['Closed At']||''; }
+        delete d['_actor'];
+        log[i]=d;
+      }
+      return this.getAll();
+    },
     deleteLog(row){ log = log.filter(r=>r._row!==row); return this.getAll(); },
     addVeh(d){ d['S/N']=++seq; d._row = veh.length+2; veh.push(d); return this.getAll(); },
     updateVeh(row,d){ const i=veh.findIndex(r=>r._row===row); if(i>-1){d['S/N']=veh[i]['S/N']; d._row=row; veh[i]=d;} return this.getAll(); },
@@ -635,6 +716,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('veh-search').addEventListener('input', renderVehicles);
   updateClock();
   setInterval(updateClock, 60000);
+  ensureUserIdentity();
   loadAll();
 });
 
@@ -758,6 +840,11 @@ function renderLog(){
     const tr = document.createElement('tr');
     const status = r['Status (Open/Closed)']||'Open';
     const type = r['Type (Preventive/Corrective)']||'';
+    const loggedBy = r['Logged By'] || '—';
+    const loggedAt = r['Logged At'] ? ` <span style="color:var(--ink-soft);font-size:11px;">· ${escapeHtml(r['Logged At'])}</span>` : '';
+    const closedBy = r['Closed By']
+      ? `${escapeHtml(r['Closed By'])}${r['Closed At'] ? ` <span style="color:var(--ink-soft);font-size:11px;">· ${escapeHtml(r['Closed At'])}</span>` : ''}`
+      : '—';
     tr.innerHTML = `
       <td class="mono">${String(r['S/N']||'').padStart(3,'0')}</td>
       <td>${fmtDate(r['Date'])}</td>
@@ -768,6 +855,8 @@ function renderLog(){
       <td class="mono">${naira(r['Cost (₦)'])}</td>
       <td><span class="pill ${status.toLowerCase()}">${status}</span></td>
       <td>${fmtDate(r['Next Due Date'])}</td>
+      <td>${escapeHtml(loggedBy)}${loggedAt}</td>
+      <td>${closedBy}</td>
       <td class="row-actions">
         <button class="icon-btn" title="Edit" onclick="editLogEntry(${r._row})">✎</button>
         <button class="icon-btn" title="Delete" onclick="removeLogEntry(${r._row})">🗑</button>
@@ -785,6 +874,7 @@ function openLogModal(){
   document.getElementById('f-type').value = 'Preventive';
   document.getElementById('f-status').value = 'Open';
   document.getElementById('f-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('f-tracking').style.display = 'none';
   document.getElementById('log-overlay').classList.add('active');
 }
 function editLogEntry(row){
@@ -806,9 +896,17 @@ function editLogEntry(row){
   document.getElementById('f-downtime').value = r['Downtime']||'';
   document.getElementById('f-nextdue').value = r['Next Due Date']||'';
   document.getElementById('f-remarks').value = r['Remarks']||'';
+  const trackEl = document.getElementById('f-tracking');
+  const bits = [];
+  if(r['Logged By']) bits.push(`Logged by <b>${escapeHtml(r['Logged By'])}</b>${r['Logged At'] ? ' on ' + escapeHtml(r['Logged At']) : ''}`);
+  if(r['Closed By']) bits.push(`Closed/sorted by <b>${escapeHtml(r['Closed By'])}</b>${r['Closed At'] ? ' on ' + escapeHtml(r['Closed At']) : ''}`);
+  if(bits.length){ trackEl.innerHTML = bits.join('<br>'); trackEl.style.display = 'block'; }
+  else { trackEl.style.display = 'none'; }
   document.getElementById('log-overlay').classList.add('active');
 }
 function saveLogEntry(){
+  const actor = getCurrentUser();
+  if(!actor){ openUserModal(); showToast('Please enter your name first, so we know who logged this.', true); return; }
   const payload = {
     'Date': document.getElementById('f-date').value,
     'Asset Type': document.getElementById('f-assettype').value,
@@ -823,7 +921,8 @@ function saveLogEntry(){
     'Downtime': document.getElementById('f-downtime').value,
     'Next Due Date': document.getElementById('f-nextdue').value,
     'Status (Open/Closed)': document.getElementById('f-status').value,
-    'Remarks': document.getElementById('f-remarks').value
+    'Remarks': document.getElementById('f-remarks').value,
+    '_actor': actor
   };
   if(!payload['Asset Name/ID'] || !payload['Date']){
     showToast('Please fill in at least the date and asset name.', true); return;
